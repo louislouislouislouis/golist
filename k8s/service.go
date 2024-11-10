@@ -7,7 +7,9 @@ import (
 	"log"
 	"reflect"
 	"strings"
+	"time"
 
+	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +17,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
+
+	"github.com/louislouislouislouis/repr8ducer/utils"
 )
 
 type K8sService struct {
@@ -23,40 +27,62 @@ type K8sService struct {
 }
 
 func (s *K8sService) ListNamespace() (*v1.NamespaceList, error) {
-	tests, err := s.Client.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	time.Sleep(3 * time.Second)
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Start to fetch Nms"),
+	)
+	nms, err := s.Client.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 
-	// for _, test := range tests.Items {
-	// utils.Log.Debug().Msg(test.Name)
-	// }
-	return tests, err
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Got Namespace %s", nms),
+	)
+	return nms, err
 }
 
 func (s *K8sService) ListPodsInNamespace(nms string) (*v1.PodList, error) {
-	pods, err := s.Client.CoreV1().Pods(nms).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
-	}
-	return pods, err
+	pod, err := s.Client.CoreV1().Pods(nms).List(context.TODO(), metav1.ListOptions{})
+
+	// Todo Handle error
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Got pods %s", pod),
+	)
+
+	return pod, err
 }
 
 func (s *K8sService) GetPod(nms, podName string) (*v1.Pod, error) {
 	pod, err := s.Client.CoreV1().Pods(nms).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
+		// Todo Handle error and context
 		panic(err.Error())
 	}
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Got pods %s", pod),
+	)
 	return pod, err
 }
 
-func (s *K8sService) Exec(nms, podName string) (string, error) {
+func (s *K8sService) GetContainerFromPods(nms, podName string) ([]v1.Container, error) {
+	pod, err := s.Client.CoreV1().Pods(nms).Get(context.TODO(), podName, metav1.GetOptions{})
+	if err != nil {
+		return []v1.Container{}, err
+	}
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Got %d container", len(pod.Spec.Containers)),
+	)
+	return pod.Spec.Containers, err
+}
+
+func (s *K8sService) Exec(nms, pod, container string) (string, error) {
 	req := s.Client.CoreV1().
 		RESTClient().
 		Post().
 		Resource("pods").
-		Name(podName).
+		Name(pod).
 		Namespace(nms).
 		SubResource("exec")
 	req.VersionedParams(&v1.PodExecOptions{
-		Container: "metering",
+		Container: container,
 		Command:   []string{"cat", "config/application.yaml"},
 		Stdin:     true,
 		Stdout:    true,
@@ -71,8 +97,6 @@ func (s *K8sService) Exec(nms, podName string) (string, error) {
 	restCfg, err := kubeCfg.ClientConfig()
 
 	exec, err := remotecommand.NewSPDYExecutor(restCfg, "POST", req.URL())
-
-	fmt.Println(req.URL())
 	if err != nil {
 		return "", err
 	}
