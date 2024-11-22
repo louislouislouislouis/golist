@@ -3,7 +3,20 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	docStyle   = lipgloss.NewStyle().Margin(1, 2)
+	docStyle = lipgloss.
+			NewStyle()
+
+	bigTitleStyle = lipgloss.
+			NewStyle().
+			Align(lipgloss.Center)
+
+	focusStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62"))
+
+	unfocusStyle = focusStyle.
+			BorderForeground(lipgloss.Color("#bababa"))
+
 	titleStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("62")).
 			Padding(1, 2).

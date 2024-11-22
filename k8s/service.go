@@ -7,7 +7,6 @@ import (
 	"log"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
@@ -27,7 +26,6 @@ type K8sService struct {
 }
 
 func (s *K8sService) ListNamespace() (*v1.NamespaceList, error) {
-	time.Sleep(3 * time.Second)
 	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
 		fmt.Sprintf("Start to fetch Nms"),
 	)
@@ -81,11 +79,13 @@ func (s *K8sService) Exec(nms, pod, container string) (string, error) {
 		Name(pod).
 		Namespace(nms).
 		SubResource("exec")
+
 	req.VersionedParams(&v1.PodExecOptions{
 		Container: container,
 		Command:   []string{"cat", "config/application.yaml"},
 		Stdin:     true,
 		Stdout:    true,
+		Stderr:    false,
 	}, scheme.ParameterCodec)
 	// find / -type f -name application.yaml 2>/dev/null | xargs cat
 
@@ -103,6 +103,8 @@ func (s *K8sService) Exec(nms, pod, container string) (string, error) {
 	buf := &bytes.Buffer{}
 	buf2 := &bytes.Buffer{}
 
+	utils.Log.Debug().Msg("Heeyyy")
+
 	err = exec.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
 		Stdin:  nil,
 		Tty:    false,
@@ -112,6 +114,8 @@ func (s *K8sService) Exec(nms, pod, container string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	utils.Log.Debug().Msg("Heeyyy")
 	test3 := buf.String()
 
 	// Analyse du YAML

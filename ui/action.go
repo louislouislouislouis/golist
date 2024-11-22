@@ -4,6 +4,8 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/louislouislouislouis/repr8ducer/utils"
 )
 
 type Action int
@@ -14,64 +16,37 @@ const (
 	namespaceSelect
 )
 
-func (m model) onAction(a Action) (tea.Model, tea.Cmd) {
+func (m model) onAction(a Action) (model, tea.Cmd) {
 	var cmd tea.Cmd
+
+	if len(m.columns[m.mode].list.VisibleItems()) == 0 {
+		return m, nil
+	}
 	switch a {
 	case podSelect:
-		m.pod = selectTitleSelected(m.listPods)
-		return m, initContainers(m.namespace, m.pod)
-		//		containers, _ := m.k8sService.GetContainerFromPods(m.pod, m.namespace)
-		//		displayedContainerList := createDisplayedListFromMetadata(
-		//			containers,
-		//			func(c v1.Container) DiplayableItemList {
-		//				return &displayableContainer{c}
-		//			},
-		//		)
-		//
-		//		cmd = tea.Batch(
-		//			m.listContainer.SetItems(displayedContainerList),
-		//			m.listContainer.NewStatusMessage(
-		//				fmt.Sprint(
-		//					statusStyle.Render("You're seeing containers in pod: "),
-		//					statusFocusStyle.Render(m.pod),
-		//					statusStyle.Render(". Select a container ⬇ "),
-		//				),
-		//			),
-		//		)
-
+		m.columns[pod].current = selectTitleSelected(m.columns[pod].list)
+		return m, initContainers(m.columns[namespace].current, m.columns[pod].current)
 	case containerSelect:
-		m.container = selectTitleSelected(m.listContainer)
+		m.columns[container].current = selectTitleSelected(m.columns[container].list)
 		// Todo : Handle error
-		command, _ := m.k8sService.Exec(m.namespace, m.pod, m.container)
+		command, err := m.k8sService.Exec(
+			m.columns[namespace].current,
+			m.columns[pod].current,
+			m.columns[container].current,
+		)
+		if err != nil {
+			utils.Log.Error().Msg(err.Error())
+		}
+
 		clipboard.WriteAll(command)
 	case namespaceSelect:
-		m.namespace = selectTitleSelected(m.listNamespace)
-		return m, initPods(m.namespace)
+		m.columns[namespace].current = selectTitleSelected(m.columns[namespace].list)
+		return m, initPods(m.columns[namespace].current)
 
-		//		m.namespace = selectTitleSelected(m.listNamespace)
-		//		// TODO : Handle error
-		//		pods, _ := m.k8sService.ListPodsInNamespace(m.namespace)
-		//		cmd = tea.Batch(
-		//			m.listPods.SetItems(
-		//				createDisplayedListFromMetadata(
-		//					pods.Items,
-		//					func(pod v1.Pod) DiplayableItemList {
-		//						return &displayableMeta{&pod}
-		//					}),
-		//			),
-		//			m.listPods.NewStatusMessage(
-		//				fmt.Sprint(
-		//					statusStyle.Render("You're seeing pods in namespace: "),
-		//					statusFocusStyle.Render(m.namespace),
-		//					statusStyle.Render(". Select a pod ⬇ "),
-		//				),
-		//			),
-		//		)
 	}
 	return m, cmd
 }
 
 func selectTitleSelected(list list.Model) string {
-	// TODO handle if index not in range
-	return list.Items()[list.Index()].(displayedItem).title
+	return list.VisibleItems()[list.Index()].(displayedItem).title
 }

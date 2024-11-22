@@ -1,198 +1,188 @@
 package ui
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	v1 "k8s.io/api/core/v1"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/louislouislouislouis/repr8ducer/k8s"
 )
 
+type itemWithList struct {
+	current       string
+	list          list.Model
+	isInitialized bool
+}
+
+type size struct {
+	width  int
+	height int
+}
 type model struct {
-	k8sService    *k8s.K8sService
-	namespace     string
-	pod           string
-	container     string
-	listNamespace list.Model
-	listContainer list.Model
-	listPods      list.Model
+	columns    []column
+	mode       colType
+	k8sService *k8s.K8sService
+	spinner    spinner.Model
+	size       size
 }
 
 type ModelConfig struct {
 	Namespace, Pod, Container string
 }
 
-func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
-	displayedNamespaceList := []list.Item{}
-	displayedPodList := []list.Item{}
-	displayedContainerList := []list.Item{}
+type colType int
 
+const (
+	namespace colType = iota
+	pod
+	container
+)
+
+func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
+	spinners := spinner.New()
+	test := []column{
+		{
+			width:         0,
+			height:        0,
+			current:       c.Namespace,
+			isInitialized: false,
+			isFocused:     true,
+			spinner:       spinners,
+			list:          setupCustomList("Namespace", []list.Item{}),
+		},
+		{
+			width:         0,
+			isInitialized: false,
+			current:       c.Pod,
+			height:        0,
+			isFocused:     false,
+			spinner:       spinners,
+			list:          setupCustomList("Pods", []list.Item{}),
+		},
+		{
+			width:         0,
+			isInitialized: false,
+			height:        0,
+			spinner:       spinners,
+			current:       c.Container,
+			isFocused:     false,
+			list:          setupCustomList("Containers", []list.Item{}),
+		},
+	}
 	return model{
-		k8sService:    k8s,
-		pod:           c.Pod,
-		namespace:     c.Namespace,
-		container:     c.Container,
-		listNamespace: setupCustomList("Namespaces", displayedNamespaceList),
-		listPods:      setupCustomList("Pods", displayedPodList),
-		listContainer: setupCustomList("Containers", displayedContainerList),
+		columns:    test,
+		k8sService: k8s,
 	}
 }
 
 func setupCustomList(title string, items []list.Item) list.Model {
 	theList := list.New(items, list.NewDefaultDelegate(), 0, 0)
 	theList.StatusMessageLifetime = time.Hour
+	theList.SetShowHelp(false)
 	theList.Title = title
 	return theList
 }
 
-type (
-	errMsg int
-)
-
-type namespaceMsg struct {
-	val *v1.NamespaceList
-}
-
-type podMsg struct {
-	val *v1.PodList
-}
-
-type containerMsg struct {
-	val []v1.Container
-}
-
 func (m model) Init() tea.Cmd {
-	if m.namespace == "" {
-		return initNamespace
-	}
-	if m.pod == "" {
-		return initPods(m.namespace)
-	}
-
-	if m.container == "" {
-		return initContainers(m.namespace, m.pod)
-	}
-	return nil
-}
-
-func initNamespace() tea.Msg {
-	listNamespace, _ := k8s.GetService().ListNamespace()
-	return namespaceMsg{
-		val: listNamespace,
-	}
-}
-
-func initContainers(nms, pod string) tea.Cmd {
-	return func() tea.Msg {
-		container, _ := k8s.GetService().GetContainerFromPods(nms, pod)
-		return containerMsg{
-			val: container,
-		}
-	}
-}
-
-func initPods(nms string) tea.Cmd {
-	return func() tea.Msg {
-		listPods, _ := k8s.GetService().ListPodsInNamespace(nms)
-		return podMsg{
-			val: listPods,
-		}
-	}
-}
-
-func (m model) View() string {
-	if m.namespace == "" {
-		return docStyle.Render(m.listNamespace.View())
+	var initCmd tea.Cmd
+	if m.columns[namespace].current == "" {
+		initCmd = initNamespace
+	} else if m.columns[pod].current == "" {
+		initCmd = initPods(m.columns[namespace].current)
+	} else if m.columns[container].current == "" {
+		initCmd = initContainers(m.columns[namespace].current, m.columns[pod].current)
 	}
 
-	if m.pod == "" {
-		return docStyle.Render(m.listPods.View())
-	}
-
-	if m.container == "" {
-		return docStyle.Render(m.listContainer.View())
-	}
-
-	return fmt.Sprint(
-		"Selected ",
-		orangeStyle.Render(m.namespace),
-		"/",
-		blueStyle.Render(m.pod),
-		":",
-		violetStyle.Render(m.container),
+	return tea.Batch(
+		m.columns[pod].spinner.Tick,
+		m.columns[container].spinner.Tick,
+		m.columns[namespace].spinner.Tick,
+		initCmd,
 	)
 }
 
-func (m model) isFiltering() bool {
-	return m.listNamespace.FilterState() == list.Filtering ||
-		m.listContainer.FilterState() == list.Filtering ||
-		m.listPods.FilterState() == list.Filtering
+func title() string {
+	title := ` ____  ___  ___  ____   
+(_  _)(  _)/ __)(_  _)  
+  )(   ) _)\__ \  )(    
+ (__) (___)(___/ (__)`
+	return title
+}
+
+func (m model) View() string {
+	renders := make([]string, len(m.columns))
+	for _, c := range m.columns {
+		renders = append(renders, c.View())
+	}
+	m.columns[m.mode].list.Help.Width = 444
+	return lipgloss.JoinVertical(
+		lipgloss.Center,
+		bigTitleStyle.Width(m.size.width).Render(title()),
+		lipgloss.JoinHorizontal(lipgloss.Left, renders...),
+		m.columns[m.mode].list.Help.View(m.columns[m.mode].list),
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmds := make([]tea.Cmd, len(m.columns))
 	switch msg := msg.(type) {
+
+	case namespaceMsg, podMsg, containerMsg:
+		return handlek8sMsg(m, msg)
+
 	case tea.KeyMsg:
-		// Don't match any of the keys below if we're actively filtering.
 		if m.isFiltering() {
 			break
 		}
-		if msg.String() == "ctrl+c" {
+		switch msg.String() {
+		case "ctrl+c":
 			return m, tea.Quit
+
+		case "enter":
+			return handleEnterKey(m)
+
+		case "left":
+			return handleLeftKey(m)
+
+		case "right":
+			return handleRightKey(m)
+
 		}
-		if msg.String() == "enter" {
-			if m.namespace == "" {
-				return m.onAction(namespaceSelect)
-			}
-			if m.pod == "" {
-				return m.onAction(podSelect)
-			}
-			return m.onAction(containerSelect)
-		}
+
 	case tea.WindowSizeMsg:
-		m = updateSizeLists(m, msg)
-	case namespaceMsg:
-		displayedNamespaceList := createDisplayedListFromMetadata(
-			msg.val.Items,
-			func(nms v1.Namespace) DiplayableItemList {
-				return &displayableMeta{&nms.ObjectMeta}
-			},
-		)
-		return m, m.listNamespace.SetItems(displayedNamespaceList)
-	case podMsg:
-		displayedPodList := createDisplayedListFromMetadata(
-			msg.val.Items,
-			func(pod v1.Pod) DiplayableItemList {
-				return &displayableMeta{&pod.ObjectMeta}
-			},
-		)
-		return m, m.listPods.SetItems(displayedPodList)
-	case containerMsg:
-		displayedContainerList := createDisplayedListFromMetadata(
-			msg.val,
-			func(container v1.Container) DiplayableItemList {
-				return &displayableContainer{container}
-			},
-		)
-		return m, m.listContainer.SetItems(displayedContainerList)
+		m.size = size{
+			height: msg.Height,
+			width:  msg.Width,
+		}
+		for i := range m.columns {
+			col, cmd := m.columns[i].Update(msg)
+			m.columns[i] = col
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+
+	case spinner.TickMsg:
+		for i := range m.columns {
+			col, cmd := m.columns[i].Update(msg)
+			m.columns[i] = col
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 	}
-	return updateList(m, msg)
+
+	var cmd tea.Cmd
+	m.columns[m.mode], cmd = m.columns[m.mode].Update(msg)
+	return m, tea.Batch(cmd)
 }
 
-func updateList(m model, msg tea.Msg) (model, tea.Cmd) {
-	var cmdNamespace, cmdPods, cmdContainer tea.Cmd
-	m.listNamespace, cmdNamespace = m.listNamespace.Update(msg)
-	m.listPods, cmdPods = m.listPods.Update(msg)
-	m.listContainer, cmdContainer = m.listContainer.Update(msg)
-	return m, tea.Batch(cmdPods, cmdNamespace, cmdContainer)
-}
-
-func updateSizeLists(m model, msg tea.WindowSizeMsg) model {
-	h, v := docStyle.GetFrameSize()
-	m.listNamespace.SetSize(msg.Width-h, msg.Height-v)
-	m.listContainer.SetSize(msg.Width-h, msg.Height-v)
-	m.listPods.SetSize(msg.Width-h, msg.Height-v)
-	return m
+func (m model) isFiltering() bool {
+	for i := range m.columns {
+		if m.columns[i].list.FilterState() == list.Filtering {
+			return true
+		}
+	}
+	return false
 }
