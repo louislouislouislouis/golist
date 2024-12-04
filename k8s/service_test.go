@@ -15,17 +15,7 @@ func TestGetContainer(t *testing.T) {
 	t.Log(liste.Items)
 }
 
-func TestGetEnvValues(t *testing.T) {
-	k8s := GetService()
-	k8s.GetEnvFromContainer(
-		"kiwios-cloud-metering",
-		"metering-5668bbd986-lhrbv",
-		"",
-		context.TODO(),
-	)
-}
-
 func TestGetVolumes(t *testing.T) {
 	k8s := GetService()
-	k8s.listVolumes("kiwios-cloud-metering", "metering-5668bbd986-lhrbv", context.TODO())
+	k8s.PodToContainer("kiwios-cloud-metering", "metering-dc5654c89-hxqjq", context.TODO())
 }

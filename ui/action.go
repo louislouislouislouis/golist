@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"context"
+
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,10 +31,10 @@ func (m model) onAction(a Action) (model, tea.Cmd) {
 	case containerSelect:
 		m.columns[container].current = selectTitleSelected(m.columns[container].list)
 		// Todo : Handle error
-		command, err := m.k8sService.Exec(
+		command, err := m.k8sService.PodToContainer(
 			m.columns[namespace].current,
 			m.columns[pod].current,
-			m.columns[container].current,
+			context.TODO(),
 		)
 		if err != nil {
 			utils.Log.Error().Msg(err.Error())
