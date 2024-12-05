@@ -17,6 +17,11 @@ type namespaceMsg struct {
 	status statusMsg
 }
 
+type infoMsg struct {
+	val    string
+	status statusMsg
+}
+
 type podMsg struct {
 	val    *v1.PodList
 	status statusMsg

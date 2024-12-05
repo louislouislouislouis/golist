@@ -33,11 +33,11 @@ type K8sService struct {
 	Client *kubernetes.Clientset
 }
 
-func (s *K8sService) ListNamespace() (*v1.NamespaceList, error) {
+func (s *K8sService) ListNamespace(ctx context.Context) (*v1.NamespaceList, error) {
 	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
 		fmt.Sprintf("Start to fetch Nms"),
 	)
-	nms, err := s.Client.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	nms, err := s.Client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 
 	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
 		fmt.Sprintf("Got Namespace %s", nms),
@@ -138,31 +138,27 @@ func (s *K8sService) PodToContainer(
 	}
 }
 
-func (s *K8sService) ListPodsInNamespace(nms string) (*v1.PodList, error) {
-	pod, err := s.Client.CoreV1().Pods(nms).List(context.TODO(), metav1.ListOptions{})
-
-	// Todo Handle error
-	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
-		fmt.Sprintf("Got pods %s", pod),
-	)
-
-	return pod, err
+func (s *K8sService) ListPodsInNamespace(nms string, ctx context.Context) (*v1.PodList, error) {
+	if pod, err := s.Client.CoreV1().Pods(nms).List(ctx, metav1.ListOptions{}); err != nil {
+		return nil, fmt.Errorf("Error retrieving pods in nms %s : %v", nms, err)
+	} else {
+		return pod, nil
+	}
 }
 
-func (s *K8sService) GetPod(nms, podName string) (*v1.Pod, error) {
-	pod, err := s.Client.CoreV1().Pods(nms).Get(context.TODO(), podName, metav1.GetOptions{})
+func (s *K8sService) GetPod(nms, podName string, ctx context.Context) (*v1.Pod, error) {
+	pod, err := s.Client.CoreV1().Pods(nms).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
-		// Todo Handle error and context
-		panic(err.Error())
+		return nil, fmt.Errorf("Unable to get Pod %s in namespace %s : %v", podName, nms, err)
 	}
 	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
-		fmt.Sprintf("Got pods %s", pod),
+		fmt.Sprintf("Found pod %s ", pod.Name),
 	)
-	return pod, err
+	return pod, nil
 }
 
-func (s *K8sService) GetContainerFromPods(nms, podName string) ([]v1.Container, error) {
-	pod, err := s.Client.CoreV1().Pods(nms).Get(context.TODO(), podName, metav1.GetOptions{})
+func (s *K8sService) GetContainerFromPods(nms, podName string, ctx context.Context) ([]v1.Container, error) {
+	pod, err := s.Client.CoreV1().Pods(nms).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return []v1.Container{}, err
 	}
@@ -172,7 +168,7 @@ func (s *K8sService) GetContainerFromPods(nms, podName string) ([]v1.Container, 
 	return pod.Spec.Containers, err
 }
 
-func (s *K8sService) Exec(nms, pod, container string) (string, error) {
+func (s *K8sService) Exec(nms, pod, container string, ctx context.Context) (string, error) {
 	req := s.Client.CoreV1().
 		RESTClient().
 		Post().
@@ -204,7 +200,7 @@ func (s *K8sService) Exec(nms, pod, container string) (string, error) {
 	buf := &bytes.Buffer{}
 	buf2 := &bytes.Buffer{}
 
-	err = exec.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  nil,
 		Tty:    false,
 		Stdout: buf,

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -24,6 +25,7 @@ type size struct {
 type model struct {
 	columns    []column
 	mode       colType
+	statusline statusLine
 	k8sService *k8s.K8sService
 	spinner    spinner.Model
 	size       size
@@ -75,6 +77,7 @@ func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
 	return model{
 		columns:    test,
 		k8sService: k8s,
+		statusline: statusLine{},
 	}
 }
 
@@ -89,11 +92,11 @@ func setupCustomList(title string, items []list.Item) list.Model {
 func (m model) Init() tea.Cmd {
 	var initCmd tea.Cmd
 	if m.columns[namespace].current == "" {
-		initCmd = initNamespace
+		initCmd = initNamespace(context.TODO())
 	} else if m.columns[pod].current == "" {
-		initCmd = initPods(m.columns[namespace].current)
+		initCmd = initPods(m.columns[namespace].current, context.TODO())
 	} else if m.columns[container].current == "" {
-		initCmd = initContainers(m.columns[namespace].current, m.columns[pod].current)
+		initCmd = initContainers(m.columns[namespace].current, m.columns[pod].current, context.TODO())
 	}
 
 	return tea.Batch(
@@ -105,10 +108,10 @@ func (m model) Init() tea.Cmd {
 }
 
 func title() string {
-	title := ` ____  ___  ___  ____   
-(_  _)(  _)/ __)(_  _)  
-  )(   ) _)\__ \  )(    
- (__) (___)(___/ (__)`
+	title := ` ____  ___  ___  ____  
+(_  _)(  _)/ __)(_  _) 
+  )(   ) _)\__ \  )(   
+(__) (___)(___/ (__)    `
 	return title
 }
 
@@ -123,12 +126,18 @@ func (m model) View() string {
 		bigTitleStyle.Width(m.size.width).Render(title()),
 		lipgloss.JoinHorizontal(lipgloss.Left, renders...),
 		m.columns[m.mode].list.Help.View(m.columns[m.mode].list),
+		m.statusline.View(),
 	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds := make([]tea.Cmd, len(m.columns))
 	switch msg := msg.(type) {
+
+	case infoMsg:
+		statusline, cmd := m.statusline.Update(msg)
+		m.statusline = statusline
+		return m, cmd
 
 	case namespaceMsg, podMsg, containerMsg:
 		return handlek8sMsg(m, msg)

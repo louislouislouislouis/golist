@@ -3,6 +3,8 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -324,14 +326,19 @@ func (s *K8sService) generateVolumeContents(
 				)
 			default:
 				utils.Log.Info().Msg(
-					fmt.Sprintf("Unknown volumes  projected %s", v.Name),
+					fmt.Sprintf("Unknown volumes projected %s", v.Name),
 				)
 			}
 		}
 	case v.EmptyDir != nil:
-		utils.Log.Info().Msg(
-			fmt.Sprintf("TODO : generated for empty Dir %s", v.Name),
+		dir := filepath.Dir(
+			fmt.Sprintf("%s/%s", volumePath, v.Name),
 		)
+		if err := os.MkdirAll(dir, 0777); err != nil {
+			utils.Log.Err(err).Msgf("Error creating directories for emptyDir '%s'", dir)
+			return fmt.Errorf("error creating directories for dir '%s': %v", dir, err)
+		}
+		utils.Log.Debug().Msgf("Created EmptyDir %s", dir)
 	default:
 		utils.Log.Info().Msg(
 			fmt.Sprintf("Unknown volumes %s", v.Name),

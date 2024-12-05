@@ -27,10 +27,9 @@ func (m model) onAction(a Action) (model, tea.Cmd) {
 	switch a {
 	case podSelect:
 		m.columns[pod].current = selectTitleSelected(m.columns[pod].list)
-		return m, initContainers(m.columns[namespace].current, m.columns[pod].current)
+		return m, initContainers(m.columns[namespace].current, m.columns[pod].current, context.TODO())
 	case containerSelect:
 		m.columns[container].current = selectTitleSelected(m.columns[container].list)
-		// Todo : Handle error
 		command, err := m.k8sService.PodToContainer(
 			m.columns[namespace].current,
 			m.columns[pod].current,
@@ -38,12 +37,12 @@ func (m model) onAction(a Action) (model, tea.Cmd) {
 		)
 		if err != nil {
 			utils.Log.Error().Msg(err.Error())
+			cmd = updateStatusLine(err.Error())
 		}
-
 		clipboard.WriteAll(command)
 	case namespaceSelect:
 		m.columns[namespace].current = selectTitleSelected(m.columns[namespace].list)
-		return m, initPods(m.columns[namespace].current)
+		return m, initPods(m.columns[namespace].current, context.TODO())
 
 	}
 	return m, cmd
