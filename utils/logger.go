@@ -69,17 +69,29 @@ var colors = []string{
 	COLOR_BACKGROUND_WHITE,
 }
 
-// Log is the public singleton logger instance.
 var Log zerolog.Logger
 
-// once ensures that the logger is initialized only once.
 var once sync.Once
 
-// init is called when the package is imported.
 func init() {
 	once.Do(func() {
-		// Configure the logger as needed. Here we set it to write to stderr.
-		output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+		// Set up external file for logging as we use OsStout
+		logFile, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			panic(err)
+		}
+		output := zerolog.ConsoleWriter{Out: logFile, TimeFormat: time.RFC3339}
 		Log = log.Output(output)
+
+		// Define if log should be set
+		debugMode := os.Getenv("DEBUG")
+
+		if debugMode == "true" {
+			zerolog.SetGlobalLevel(zerolog.DebugLevel)
+			Log.Info().Msg("Debug mode enabled")
+		} else {
+			zerolog.SetGlobalLevel(zerolog.InfoLevel)
+			Log.Info().Msg("Debug mode disabled, logging at Info level")
+		}
 	})
 }
