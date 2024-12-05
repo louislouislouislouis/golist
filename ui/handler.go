@@ -12,7 +12,7 @@ const (
 	right
 )
 
-func changeFocus(m model, direction direction) (model, tea.Cmd) {
+func (m model) changeFocus(direction direction) model {
 	if direction == left {
 		m.mode--
 	} else {
@@ -30,7 +30,7 @@ func changeFocus(m model, direction direction) (model, tea.Cmd) {
 		m.columns[i].isFocused = i == int(m.mode)
 	}
 
-	return m, nil
+	return m
 }
 
 func handleRightKey(m model) (tea.Model, tea.Cmd) {
@@ -38,7 +38,7 @@ func handleRightKey(m model) (tea.Model, tea.Cmd) {
 }
 
 func handleLeftKey(m model) (tea.Model, tea.Cmd) {
-	return changeFocus(m, left)
+	return m.changeFocus(left), nil
 }
 
 func handleEnterKey(m model) (model, tea.Cmd) {
@@ -59,47 +59,43 @@ func handlek8sMsg(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case namespaceMsg:
-		items := createDisplayedListFromMetadata(msg.val.Items, func(nms v1.Namespace) DiplayableItemList {
+		items := createDisplayedListFromMetadata(msg.val.list.Items, func(nms v1.Namespace) DiplayableItemList {
 			return &displayableMeta{&nms.ObjectMeta}
 		})
-		m.mode = namespace
 		m.columns[namespace], cmd = m.columns[namespace].Update(
 			listUpdateMsg{
-				statusTxt: "namespace",
-				title:     "namespace",
-				val:       items,
+				statusTxt:        "namespace",
+				title:            "namespace",
+				val:              items,
+				preSelectedValue: msg.val.preSelectedNamespace,
 			},
 		)
 
 	case podMsg:
-		items := createDisplayedListFromMetadata(msg.val.Items, func(nms v1.Pod) DiplayableItemList {
+		items := createDisplayedListFromMetadata(msg.val.list.Items, func(nms v1.Pod) DiplayableItemList {
 			return &displayableMeta{&nms.ObjectMeta}
 		})
 		m.columns[pod], cmd = m.columns[pod].Update(
 			listUpdateMsg{
-				statusTxt: "pod",
-				title:     "Pod",
-				val:       items,
+				statusTxt:        "pod",
+				title:            "Pod",
+				val:              items,
+				preSelectedValue: msg.val.preSelectedPod,
 			},
 		)
-		m.mode = pod
-		m.columns[namespace].isFocused = false
-		m.columns[container].isFocused = false
 
 	case containerMsg:
-		items := createDisplayedListFromMetadata(msg.val, func(container v1.Container) DiplayableItemList {
+		items := createDisplayedListFromMetadata(msg.val.list, func(container v1.Container) DiplayableItemList {
 			return &displayableContainer{container}
 		})
 		m.columns[container], cmd = m.columns[container].Update(
 			listUpdateMsg{
-				statusTxt: "hehe",
-				title:     "Container",
-				val:       items,
+				statusTxt:        "hehe",
+				title:            "Container",
+				val:              items,
+				preSelectedValue: msg.val.preSelectedContainer,
 			},
 		)
-		m.mode = container
-		m.columns[namespace].isFocused = false
-		m.columns[pod].isFocused = false
 	}
 
 	return m, cmd

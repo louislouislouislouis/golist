@@ -8,29 +8,41 @@ import (
 	"github.com/louislouislouislouis/repr8ducer/k8s"
 )
 
-func initNamespace(ctx context.Context) tea.Cmd {
+func initNamespace(preSelectedNamepace string, ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
+		// Todo hadle error
 		listNamespace, _ := k8s.GetService().ListNamespace(ctx)
 		return namespaceMsg{
-			val: listNamespace,
+			val: namespaceMsgValue{
+				list:                 listNamespace,
+				preSelectedNamespace: preSelectedNamepace,
+			},
 		}
 	}
 }
 
-func initContainers(nms, pod string, ctx context.Context) tea.Cmd {
+func initContainers(nms, pod, preSelectedContainer string, ctx context.Context) tea.Cmd {
+	// Todo hadle error
 	return func() tea.Msg {
 		containers, _ := k8s.GetService().GetContainerFromPods(nms, pod, ctx)
 		return containerMsg{
-			val: containers,
+			val: containerMsgValue{
+				list:                 containers,
+				preSelectedContainer: preSelectedContainer,
+			},
 		}
 	}
 }
 
-func initPods(nms string, ctx context.Context) tea.Cmd {
+func initPods(nms, preSelectedPod string, ctx context.Context) tea.Cmd {
+	// Todo hadle error
 	return func() tea.Msg {
 		listPods, _ := k8s.GetService().ListPodsInNamespace(nms, ctx)
 		return podMsg{
-			val: listPods,
+			val: podMsgValue{
+				list:           listPods,
+				preSelectedPod: preSelectedPod,
+			},
 		}
 	}
 }

@@ -42,11 +42,18 @@ func (c column) Update(msg tea.Msg) (column, tea.Cmd) {
 
 	case listUpdateMsg:
 		c.isInitialized = true
-		c.isFocused = true
 		cmds := tea.Batch(
 			c.list.SetItems(msg.val),
 			c.list.NewStatusMessage(msg.statusTxt),
 		)
+		selectedIdx := 0
+		for idx, item := range msg.val {
+			if item.(displayedItem).Title() == msg.preSelectedValue {
+				selectedIdx = idx
+				break
+			}
+		}
+		c.list.Select(selectedIdx)
 		return c, cmds
 
 	case spinner.TickMsg:

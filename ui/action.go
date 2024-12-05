@@ -24,10 +24,12 @@ func (m model) onAction(a Action) (model, tea.Cmd) {
 	if len(m.columns[m.mode].list.VisibleItems()) == 0 {
 		return m, nil
 	}
+
 	switch a {
 	case podSelect:
+		utils.Log.Debug().Msgf("%d", m.mode)
 		m.columns[pod].current = selectTitleSelected(m.columns[pod].list)
-		return m, initContainers(m.columns[namespace].current, m.columns[pod].current, context.TODO())
+		cmd = initContainers(m.columns[namespace].current, m.columns[pod].current, "", context.TODO())
 	case containerSelect:
 		m.columns[container].current = selectTitleSelected(m.columns[container].list)
 		command, err := m.k8sService.PodToContainer(
@@ -42,9 +44,10 @@ func (m model) onAction(a Action) (model, tea.Cmd) {
 		clipboard.WriteAll(command)
 	case namespaceSelect:
 		m.columns[namespace].current = selectTitleSelected(m.columns[namespace].list)
-		return m, initPods(m.columns[namespace].current, context.TODO())
+		cmd = initPods(m.columns[namespace].current, "", context.TODO())
 
 	}
+	m = m.changeFocus(right)
 	return m, cmd
 }
 

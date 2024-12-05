@@ -12,8 +12,22 @@ const (
 	ok
 )
 
+type namespaceMsgValue struct {
+	list                 *v1.NamespaceList
+	preSelectedNamespace string
+}
+
+type containerMsgValue struct {
+	list                 []v1.Container
+	preSelectedContainer string
+}
+type podMsgValue struct {
+	list           *v1.PodList
+	preSelectedPod string
+}
+
 type namespaceMsg struct {
-	val    *v1.NamespaceList
+	val    namespaceMsgValue
 	status statusMsg
 }
 
@@ -23,18 +37,19 @@ type infoMsg struct {
 }
 
 type podMsg struct {
-	val    *v1.PodList
+	val    podMsgValue
 	status statusMsg
 }
 
 type containerMsg struct {
-	val    []v1.Container
+	val    containerMsgValue
 	status statusMsg
 }
 
 type listUpdateMsg struct {
-	val       []list.Item
-	title     string
-	statusTxt string
-	status    statusMsg
+	val              []list.Item
+	title            string
+	statusTxt        string
+	status           statusMsg
+	preSelectedValue string
 }

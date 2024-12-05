@@ -45,13 +45,22 @@ const (
 
 func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
 	spinners := spinner.New()
+	var mode colType
+	if c.Namespace == "" {
+		mode = namespace
+	} else if c.Pod == "" {
+		mode = pod
+	} else {
+		mode = container
+	}
+
 	test := []column{
 		{
 			width:         0,
 			height:        0,
 			current:       c.Namespace,
 			isInitialized: false,
-			isFocused:     true,
+			isFocused:     mode == namespace,
 			spinner:       spinners,
 			list:          setupCustomList("Namespace", []list.Item{}),
 		},
@@ -60,7 +69,7 @@ func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
 			isInitialized: false,
 			current:       c.Pod,
 			height:        0,
-			isFocused:     false,
+			isFocused:     mode == pod,
 			spinner:       spinners,
 			list:          setupCustomList("Pods", []list.Item{}),
 		},
@@ -70,11 +79,12 @@ func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
 			height:        0,
 			spinner:       spinners,
 			current:       c.Container,
-			isFocused:     false,
+			isFocused:     mode == container,
 			list:          setupCustomList("Containers", []list.Item{}),
 		},
 	}
 	return model{
+		mode:       mode,
 		columns:    test,
 		k8sService: k8s,
 		statusline: statusLine{},
@@ -90,20 +100,24 @@ func setupCustomList(title string, items []list.Item) list.Model {
 }
 
 func (m model) Init() tea.Cmd {
-	var initCmd tea.Cmd
-	if m.columns[namespace].current == "" {
-		initCmd = initNamespace(context.TODO())
-	} else if m.columns[pod].current == "" {
-		initCmd = initPods(m.columns[namespace].current, context.TODO())
-	} else if m.columns[container].current == "" {
-		initCmd = initContainers(m.columns[namespace].current, m.columns[pod].current, context.TODO())
+	var initCmd []tea.Cmd
+	if m.columns[namespace].current != "" {
+		initCmd = append(initCmd, initPods(m.columns[namespace].current, m.columns[pod].current, context.TODO()))
+		if m.columns[pod].current != "" {
+			initCmd = append(initCmd, initContainers(m.columns[namespace].current, m.columns[pod].current, m.columns[container].current, context.TODO()))
+		}
 	}
 
-	return tea.Batch(
+	initCmd = append(
+		initCmd,
+		initNamespace(m.columns[namespace].current, context.TODO()), // always init Namespace
 		m.columns[pod].spinner.Tick,
 		m.columns[container].spinner.Tick,
 		m.columns[namespace].spinner.Tick,
-		initCmd,
+	)
+
+	return tea.Batch(
+		initCmd...,
 	)
 }
 
