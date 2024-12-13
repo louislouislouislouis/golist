@@ -12,9 +12,12 @@ type Volume struct {
 }
 
 type Service struct {
+	NetworkMode   string   `yaml:"network_mode"`
+	DependsOn     []string `yaml:"depends_on,omitempty"`
 	Image         string
 	Volumes       []string
-	Environnement map[string]string `yaml:"environment"`
+	Environnement map[string]string `yaml:"environment,omitempty"`
+	Command       []string          `yaml:"command,omitempty"`
 }
 
 type DockerCompose struct {

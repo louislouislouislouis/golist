@@ -45,6 +45,54 @@ func (s *K8sService) ListNamespace(ctx context.Context) (*v1.NamespaceList, erro
 	return nms, err
 }
 
+func (s *K8sService) generateContainerContent(
+	pod v1.Pod,
+	container v1.Container,
+	namespace string,
+	ctx context.Context,
+	rootDir string,
+	dockerFile dkr.DockerCompose,
+	initContainers []string,
+) error {
+	volumesMounts, volumes, err := s.generateVolumesContent(
+		pod,
+		container,
+		namespace,
+		fmt.Sprintf("%s/volumes", rootDir),
+		ctx,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"Error populating volume content of container %s : %v",
+			container.Name,
+			err,
+		)
+	}
+
+	envVars, err := s.populateEnvContent(pod, container, namespace, ctx)
+	if err != nil {
+		return fmt.Errorf(
+			"Error populating env content of container %s : %v",
+			container.Name,
+			err,
+		)
+	}
+
+	// Merging new volumes
+	maps.Copy(dockerFile.Volumes, volumes)
+
+	// Adding Service
+	dockerFile.Services[container.Name] = dkr.Service{
+		Image:         container.Image,
+		Volumes:       volumesMounts,
+		Environnement: envVars,
+		NetworkMode:   "host",
+		DependsOn:     initContainers,
+		Command:       container.Command,
+	}
+	return nil
+}
+
 func (s *K8sService) generateDockerComposeFile(
 	pod v1.Pod,
 	namespace string,
@@ -58,41 +106,22 @@ func (s *K8sService) generateDockerComposeFile(
 		Volumes:  make(map[string]dkr.Volume, len(pod.Spec.Volumes)),
 	}
 
+	initContainers := make([]string, len(pod.Spec.InitContainers))
+	for idx, container := range pod.Spec.InitContainers {
+		s.generateContainerContent(pod, container, namespace, ctx, rootDir, dockerFile, []string{})
+		initContainers[idx] = container.Name
+	}
+
 	for _, container := range pod.Spec.Containers {
-		volumesMounts, volumes, err := s.generateVolumesContent(
+		s.generateContainerContent(
 			pod,
 			container,
 			namespace,
-			fmt.Sprintf("%s/volumes", rootDir),
 			ctx,
+			rootDir,
+			dockerFile,
+			initContainers,
 		)
-		if err != nil {
-			return "", fmt.Errorf(
-				"Error populating volume content of container %s : %v",
-				container.Name,
-				err,
-			)
-		}
-
-		envVars, err := s.populateEnvContent(pod, container, namespace, ctx)
-		if err != nil {
-			return "", fmt.Errorf(
-				"Error populating env content of container %s : %v",
-				container.Name,
-				err,
-			)
-		}
-
-		// Merging new volumes
-		maps.Copy(dockerFile.Volumes, volumes)
-
-		// Adding Service
-		dockerFile.Services[container.Name] = dkr.Service{
-			Image:         container.Image,
-			Volumes:       volumesMounts,
-			Environnement: envVars,
-		}
-
 	}
 
 	dockerComposePathFile := fmt.Sprintf("%s/docker-compose.yml", rootDir)
@@ -157,7 +186,10 @@ func (s *K8sService) GetPod(nms, podName string, ctx context.Context) (*v1.Pod, 
 	return pod, nil
 }
 
-func (s *K8sService) GetContainerFromPods(nms, podName string, ctx context.Context) ([]v1.Container, error) {
+func (s *K8sService) GetContainerFromPods(
+	nms, podName string,
+	ctx context.Context,
+) ([]v1.Container, error) {
 	pod, err := s.Client.CoreV1().Pods(nms).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return []v1.Container{}, err
