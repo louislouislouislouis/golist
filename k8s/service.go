@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +16,13 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
+
+	"github.com/louislouislouislouis/repr8ducer/utils"
+)
+
+var (
+	generatedFilesBasePath   = "/tmp/repr8ducer"
+	dockerComposeFileVersion = "3.8"
 )
 
 type K8sService struct {
@@ -22,44 +30,66 @@ type K8sService struct {
 	Client *kubernetes.Clientset
 }
 
-func (s *K8sService) ListNamespace() (*v1.NamespaceList, error) {
-	tests, err := s.Client.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+func (s *K8sService) ListNamespace(ctx context.Context) (*v1.NamespaceList, error) {
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Start to fetch Nms"),
+	)
+	nms, err := s.Client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 
-	// for _, test := range tests.Items {
-	// utils.Log.Debug().Msg(test.Name)
-	// }
-	return tests, err
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Got Namespace %s", nms),
+	)
+	return nms, err
 }
 
-func (s *K8sService) ListPodsInNamespace(nms string) (*v1.PodList, error) {
-	pods, err := s.Client.CoreV1().Pods(nms).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
+func (s *K8sService) ListPodsInNamespace(nms string, ctx context.Context) (*v1.PodList, error) {
+	if pod, err := s.Client.CoreV1().Pods(nms).List(ctx, metav1.ListOptions{}); err != nil {
+		return nil, fmt.Errorf("Error retrieving pods in nms %s : %v", nms, err)
+	} else {
+		return pod, nil
 	}
-	return pods, err
 }
 
-func (s *K8sService) GetPod(nms, podName string) (*v1.Pod, error) {
-	pod, err := s.Client.CoreV1().Pods(nms).Get(context.TODO(), podName, metav1.GetOptions{})
+func (s *K8sService) GetPod(nms, podName string, ctx context.Context) (*v1.Pod, error) {
+	pod, err := s.Client.CoreV1().Pods(nms).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("Unable to get Pod %s in namespace %s : %v", podName, nms, err)
 	}
-	return pod, err
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Found pod %s ", pod.Name),
+	)
+	return pod, nil
 }
 
-func (s *K8sService) Exec(nms, podName string) (string, error) {
+func (s *K8sService) GetContainerFromPods(
+	nms, podName string,
+	ctx context.Context,
+) ([]v1.Container, error) {
+	pod, err := s.Client.CoreV1().Pods(nms).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return []v1.Container{}, err
+	}
+	utils.Log.WithLevel(zerolog.DebugLevel).Msg(
+		fmt.Sprintf("Got %d container", len(pod.Spec.Containers)),
+	)
+	return pod.Spec.Containers, err
+}
+
+func (s *K8sService) Exec(nms, pod, container string, ctx context.Context) (string, error) {
 	req := s.Client.CoreV1().
 		RESTClient().
 		Post().
 		Resource("pods").
-		Name(podName).
+		Name(pod).
 		Namespace(nms).
 		SubResource("exec")
+
 	req.VersionedParams(&v1.PodExecOptions{
-		Container: "metering",
+		Container: container,
 		Command:   []string{"cat", "config/application.yaml"},
 		Stdin:     true,
 		Stdout:    true,
+		Stderr:    false,
 	}, scheme.ParameterCodec)
 	// find / -type f -name application.yaml 2>/dev/null | xargs cat
 
@@ -71,15 +101,13 @@ func (s *K8sService) Exec(nms, podName string) (string, error) {
 	restCfg, err := kubeCfg.ClientConfig()
 
 	exec, err := remotecommand.NewSPDYExecutor(restCfg, "POST", req.URL())
-
-	fmt.Println(req.URL())
 	if err != nil {
 		return "", err
 	}
 	buf := &bytes.Buffer{}
 	buf2 := &bytes.Buffer{}
 
-	err = exec.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  nil,
 		Tty:    false,
 		Stdout: buf,
@@ -88,6 +116,7 @@ func (s *K8sService) Exec(nms, podName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	test3 := buf.String()
 
 	// Analyse du YAML
@@ -123,4 +152,54 @@ func flattenYaml(prefix string, data map[string]interface{}) []string {
 		}
 	}
 	return result
+}
+
+func (s *K8sService) getSecretValue(
+	ctx context.Context,
+	namespace, secretName, key string,
+) (string, error) {
+	secret, err := s.Client.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	value, exists := secret.Data[key]
+	if !exists {
+		return "", fmt.Errorf("key %s not found in secret %s", key, secretName)
+	}
+	return string(value), nil
+}
+
+func (s *K8sService) getConfigMapValue(
+	ctx context.Context,
+	namespace, configMapName, key string,
+) (string, error) {
+	configMap, err := s.Client.CoreV1().
+		ConfigMaps(namespace).
+		Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		utils.Log.
+			Err(err).
+			Msg(
+				fmt.Sprintf(
+					"Error during ConfigMap '%s' retrieval",
+					configMapName,
+				),
+			)
+		return "", err
+	}
+	value, exists := configMap.Data[key]
+	if !exists {
+
+		utils.Log.
+			Err(err).
+			Msg(
+				fmt.Sprintf(
+					"key %s not found in configMap %s",
+					key,
+					configMapName,
+				),
+			)
+		return "", fmt.Errorf("key %s not found in configMap %s", key, configMapName)
+	}
+	return value, nil
 }
