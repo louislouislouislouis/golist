@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
@@ -29,10 +30,15 @@ func (m model) onAction(a Action) (model, tea.Cmd) {
 	case podSelect:
 		utils.Log.Debug().Msgf("%d", m.mode)
 		m.columns[pod].current = selectTitleSelected(m.columns[pod].list)
-		cmd = initContainers(m.columns[namespace].current, m.columns[pod].current, "", context.TODO())
+		cmd = initContainers(
+			m.columns[namespace].current,
+			m.columns[pod].current,
+			"",
+			context.TODO(),
+		)
 	case containerSelect:
 		m.columns[container].current = selectTitleSelected(m.columns[container].list)
-		command, err := m.k8sService.PodToContainer(
+		command, err := m.generator.PodToContainer(
 			m.columns[namespace].current,
 			m.columns[pod].current,
 			context.TODO(),
@@ -41,7 +47,19 @@ func (m model) onAction(a Action) (model, tea.Cmd) {
 			utils.Log.Error().Msg(err.Error())
 			cmd = updateStatusLine(err.Error())
 		}
-		clipboard.WriteAll(command)
+		if len(command.Modifiers) != 0 {
+			// TODO Open dialog
+			statusLine := ""
+			for _, cmd := range command.Modifiers {
+				for _, url := range cmd.GetDetections() {
+					statusLine += fmt.Sprintf("%s \n", cmd.GetDetections()[url])
+				}
+			}
+			return m, updateStatusLine(statusLine)
+		}
+		clipboard.WriteAll(command.GetCommand())
+		cmd = tea.Quit
+
 	case namespaceSelect:
 		m.columns[namespace].current = selectTitleSelected(m.columns[namespace].list)
 		cmd = initPods(m.columns[namespace].current, "", context.TODO())

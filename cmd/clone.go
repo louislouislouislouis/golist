@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/louislouislouislouis/repr8ducer/k8s"
 	"github.com/louislouislouislouis/repr8ducer/ui"
+	"github.com/louislouislouislouis/repr8ducer/utils"
 )
 
 var (
@@ -22,6 +24,21 @@ var cloneCmd = &cobra.Command{
 	Short: "Reproduce specific pod",
 	Long:  "Copy the specific docker command in your keyboard",
 	Run: func(cmd *cobra.Command, args []string) {
+		// Directly output command if all args are here
+		if namespace != "" && podName != "" && container != "" {
+			command, err := k8s.NewDefaultGenerator(k8s.GetService()).PodToContainer(
+				namespace,
+				podName,
+				context.TODO(),
+			)
+			// TODO, add better error handling, by logging
+			if err != nil {
+				utils.Log.Error().Msg(err.Error())
+			}
+			fmt.Println(command.GetCommand())
+			return
+		}
+		// Otherwise return cli
 		runCli(namespace, podName, container)
 	},
 }

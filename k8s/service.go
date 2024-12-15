@@ -5,11 +5,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"maps"
 	"reflect"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
@@ -19,12 +17,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 
-	"github.com/louislouislouislouis/repr8ducer/k8s/dkr"
 	"github.com/louislouislouislouis/repr8ducer/utils"
 )
 
 var (
-	generatedVolumesBasePath = "/tmp/repr8ducer"
+	generatedFilesBasePath   = "/tmp/repr8ducer"
 	dockerComposeFileVersion = "3.8"
 )
 
@@ -43,128 +40,6 @@ func (s *K8sService) ListNamespace(ctx context.Context) (*v1.NamespaceList, erro
 		fmt.Sprintf("Got Namespace %s", nms),
 	)
 	return nms, err
-}
-
-func (s *K8sService) generateContainerContent(
-	pod v1.Pod,
-	container v1.Container,
-	namespace string,
-	ctx context.Context,
-	rootDir string,
-	dockerFile dkr.DockerCompose,
-	initContainers []string,
-) error {
-	volumesMounts, volumes, err := s.generateVolumesContent(
-		pod,
-		container,
-		namespace,
-		fmt.Sprintf("%s/volumes", rootDir),
-		ctx,
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"Error populating volume content of container %s : %v",
-			container.Name,
-			err,
-		)
-	}
-
-	envVars, err := s.populateEnvContent(pod, container, namespace, ctx)
-	if err != nil {
-		return fmt.Errorf(
-			"Error populating env content of container %s : %v",
-			container.Name,
-			err,
-		)
-	}
-
-	// Merging new volumes
-	maps.Copy(dockerFile.Volumes, volumes)
-
-	// Adding Service
-	dockerFile.Services[container.Name] = dkr.Service{
-		Image:         container.Image,
-		Volumes:       volumesMounts,
-		Environnement: envVars,
-		NetworkMode:   "host",
-		DependsOn:     initContainers,
-		Command:       container.Command,
-	}
-	return nil
-}
-
-func (s *K8sService) generateDockerComposeFile(
-	pod v1.Pod,
-	namespace string,
-	ctx context.Context,
-) (string, error) {
-	uuidGeneration := uuid.New()
-	rootDir := fmt.Sprintf("%s/%s", generatedVolumesBasePath, uuidGeneration.String())
-	dockerFile := dkr.DockerCompose{
-		Version:  dockerComposeFileVersion,
-		Services: make(map[string]dkr.Service, len(pod.Spec.Containers)),
-		Volumes:  make(map[string]dkr.Volume, len(pod.Spec.Volumes)),
-	}
-
-	initContainers := make([]string, len(pod.Spec.InitContainers))
-	for idx, container := range pod.Spec.InitContainers {
-		s.generateContainerContent(pod, container, namespace, ctx, rootDir, dockerFile, []string{})
-		initContainers[idx] = container.Name
-	}
-
-	for _, container := range pod.Spec.Containers {
-		s.generateContainerContent(
-			pod,
-			container,
-			namespace,
-			ctx,
-			rootDir,
-			dockerFile,
-			initContainers,
-		)
-	}
-
-	dockerComposePathFile := fmt.Sprintf("%s/docker-compose.yml", rootDir)
-
-	// Generating file
-	if yamlData, err := yaml.Marshal(&dockerFile); err != nil {
-		return "", fmt.Errorf("Error with serializing pod %s : %v", pod.Name, err)
-	} else {
-		if err := writeByteFile(dockerComposePathFile, yamlData); err != nil {
-			return "", fmt.Errorf("Error writing docker-compose file: %v", err)
-		}
-	}
-
-	return dockerComposePathFile, nil
-}
-
-func findVolumeByName(volumes []v1.Volume, name string) (*v1.Volume, error) {
-	for _, v := range volumes {
-		if v.Name == name {
-			return &v, nil
-		}
-	}
-	return nil, &VolumeNameNotFoundError{
-		Message: "Ressource non trouvée",
-	}
-}
-
-func (s *K8sService) PodToContainer(
-	namespace, podName string,
-	ctx context.Context,
-) (string, error) {
-	utils.Log.Debug().Msg(
-		fmt.Sprintf("Making a pod Spec transformation to docker compose spec"),
-	)
-	if pod, err := s.Client.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{}); err != nil {
-		return "", fmt.Errorf("Error getting the pod %s : %v", podName, err)
-	} else {
-		pathToDockerComposeFile, err := s.generateDockerComposeFile(*pod, namespace, ctx)
-		utils.Log.Debug().Msg(
-			fmt.Sprintf("Pod Spec transformation to docker compose spec finished -> %s", pathToDockerComposeFile),
-		)
-		return fmt.Sprintf("docker compose -f %s up", pathToDockerComposeFile), err
-	}
 }
 
 func (s *K8sService) ListPodsInNamespace(nms string, ctx context.Context) (*v1.PodList, error) {
@@ -277,4 +152,54 @@ func flattenYaml(prefix string, data map[string]interface{}) []string {
 		}
 	}
 	return result
+}
+
+func (s *K8sService) getSecretValue(
+	ctx context.Context,
+	namespace, secretName, key string,
+) (string, error) {
+	secret, err := s.Client.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	value, exists := secret.Data[key]
+	if !exists {
+		return "", fmt.Errorf("key %s not found in secret %s", key, secretName)
+	}
+	return string(value), nil
+}
+
+func (s *K8sService) getConfigMapValue(
+	ctx context.Context,
+	namespace, configMapName, key string,
+) (string, error) {
+	configMap, err := s.Client.CoreV1().
+		ConfigMaps(namespace).
+		Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		utils.Log.
+			Err(err).
+			Msg(
+				fmt.Sprintf(
+					"Error during ConfigMap '%s' retrieval",
+					configMapName,
+				),
+			)
+		return "", err
+	}
+	value, exists := configMap.Data[key]
+	if !exists {
+
+		utils.Log.
+			Err(err).
+			Msg(
+				fmt.Sprintf(
+					"key %s not found in configMap %s",
+					key,
+					configMapName,
+				),
+			)
+		return "", fmt.Errorf("key %s not found in configMap %s", key, configMapName)
+	}
+	return value, nil
 }

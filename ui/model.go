@@ -29,6 +29,7 @@ type model struct {
 	k8sService *k8s.K8sService
 	spinner    spinner.Model
 	size       size
+	generator  *k8s.Generator
 }
 
 type ModelConfig struct {
@@ -43,7 +44,7 @@ const (
 	container
 )
 
-func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
+func NewModel(k8sService *k8s.K8sService, c ModelConfig) model {
 	spinners := spinner.New()
 	var mode colType
 	if c.Namespace == "" {
@@ -83,11 +84,13 @@ func NewModel(k8s *k8s.K8sService, c ModelConfig) model {
 			list:          setupCustomList("Containers", []list.Item{}),
 		},
 	}
+	generator := k8s.NewDefaultGenerator(k8sService)
 	return model{
 		mode:       mode,
 		columns:    test,
-		k8sService: k8s,
+		k8sService: k8sService,
 		statusline: statusLine{},
+		generator:  generator,
 	}
 }
 
@@ -102,9 +105,20 @@ func setupCustomList(title string, items []list.Item) list.Model {
 func (m model) Init() tea.Cmd {
 	var initCmd []tea.Cmd
 	if m.columns[namespace].current != "" {
-		initCmd = append(initCmd, initPods(m.columns[namespace].current, m.columns[pod].current, context.TODO()))
+		initCmd = append(
+			initCmd,
+			initPods(m.columns[namespace].current, m.columns[pod].current, context.TODO()),
+		)
 		if m.columns[pod].current != "" {
-			initCmd = append(initCmd, initContainers(m.columns[namespace].current, m.columns[pod].current, m.columns[container].current, context.TODO()))
+			initCmd = append(
+				initCmd,
+				initContainers(
+					m.columns[namespace].current,
+					m.columns[pod].current,
+					m.columns[container].current,
+					context.TODO(),
+				),
+			)
 		}
 	}
 
@@ -122,9 +136,9 @@ func (m model) Init() tea.Cmd {
 }
 
 func title() string {
-	title := ` ____  ___  ___  ____  
-(_  _)(  _)/ __)(_  _) 
-  )(   ) _)\__ \  )(   
+	title := `  ____  ___  ___  ____  
+ (_  _)(  _)/ __)(_  _) 
+   )(   ) _)\__ \  )(   
 (__) (___)(___/ (__)    `
 	return title
 }

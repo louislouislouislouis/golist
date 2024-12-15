@@ -67,8 +67,10 @@ func NewK8sService() (*K8sService, error) {
 		return nil, err
 	}
 
-	return &K8sService{
+	k8s := &K8sService{
 		Client: clientset,
 		config: kubeconfig,
-	}, nil
+	}
+
+	return k8s, nil
 }
